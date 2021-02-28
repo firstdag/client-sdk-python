@@ -161,7 +161,7 @@ class Client:
             cmd = self.create_inbound_payment_command(request.cid, payment)
             if cmd.is_initial():
                 self.validate_dual_attestation_limit(cmd.payment.action)
-            elif cmd.is_rsend():
+            elif cmd.payment.action.action == "charge" and cmd.is_rsend():
                 self.validate_recipient_signature(cmd, public_key)
             return cmd
 
@@ -258,16 +258,16 @@ class Client:
 
 
 def _filter_supported_currency_codes(
-    supported_codes: typing.Optional[typing.List[str]], codes: typing.List[str]
+        supported_codes: typing.Optional[typing.List[str]], codes: typing.List[str]
 ) -> typing.List[str]:
     return list(filter(lambda code: supported_codes is None or code in supported_codes, codes))
 
 
 def _deserialize_jws(
-    content_bytes: bytes,
-    klass: typing.Type[jws.T],
-    public_key: Ed25519PublicKey,
-    error_fn: typing.Callable[[str, str, typing.Optional[str]], Error],
+        content_bytes: bytes,
+        klass: typing.Type[jws.T],
+        public_key: Ed25519PublicKey,
+        error_fn: typing.Callable[[str, str, typing.Optional[str]], Error],
 ) -> jws.T:
     try:
         return jws.deserialize(content_bytes, klass, public_key.verify)

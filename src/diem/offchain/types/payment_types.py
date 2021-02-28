@@ -29,6 +29,8 @@ class Status:
     abort = "abort"
     # KYC data resulted in a soft-match, request additional_kyc_data.
     soft_match = "soft_match"
+    #
+    authorized = "authorized"
 
 
 @dataclass(frozen=True)
@@ -103,7 +105,9 @@ class KycDataObject:
 class PaymentActionObject:
     amount: int
     currency: str
-    action: str = datafield(default="charge", metadata={"valid-values": ["charge"]})
+    # Unix timestamp indicating the time that the authorization granted by buyer will be expired
+    valid_until: int
+    action: str = datafield(default="charge", metadata={"valid-values": ["charge", "auth", "capture"]})
     # Unix timestamp (seconds) indicating the time that the payment Command was created.
     timestamp: int = datafield(default_factory=lambda: int(time.time()))
 
