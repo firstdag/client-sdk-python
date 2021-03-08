@@ -106,7 +106,7 @@ class PaymentActionObject:
     amount: int
     currency: str
     # Unix timestamp indicating the time that the authorization granted by buyer will be expired
-    valid_until: typing.Optional[int]
+    valid_until: typing.Optional[int] = datafield(default=None)
     action: str = datafield(default="charge", metadata={"valid-values": ["charge", "auth", "capture"]})
     # Unix timestamp (seconds) indicating the time that the payment Command was created.
     timestamp: int = datafield(default_factory=lambda: int(time.time()))
