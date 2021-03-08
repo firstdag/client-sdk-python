@@ -30,13 +30,21 @@ from .. import jsonrpc, diem_types, identifier, utils
 
 
 DEFAULT_CONNECT_TIMEOUT_SECS: float = 2.0
-DEFAULT_TIMEOUT_SECS: float = 5.0
+DEFAULT_TIMEOUT_SECS: float = 30.0
 
 
 class CommandResponseError(Exception):
     def __init__(self, resp: CommandResponseObject) -> None:
         super().__init__(resp)
         self.resp = resp
+
+
+class InvalidCurrencyCodeError(ValueError):
+    pass
+
+
+class UnsupportedCurrencyCodeError(ValueError):
+    pass
 
 
 @dataclasses.dataclass
@@ -47,7 +55,7 @@ class Client:
 
     Initialization:
     ```
-    >>> from diem import offchain, jsonrpc, testnet, LocalAccount
+    >>> from diem import offchain, testnet
     >>>
     >>> jsonrpc_client = testnet.create_client()
     >>> account = testnet.gen_account(client, base_url="http://vasp.com/offchain")
@@ -98,17 +106,17 @@ class Client:
     def __post_init__(self) -> None:
         self.my_compliance_key_account_id = self.account_id(self.my_compliance_key_account_address)
 
-    def send_command(self, command: PaymentCommand, sign: typing.Callable[[bytes], bytes]) -> CommandResponseObject:
+    def send_command(self, command: Command, sign: typing.Callable[[bytes], bytes]) -> CommandResponseObject:
         return self.send_request(
-            request_sender_address=command.my_actor_address,
-            opponent_account_id=command.opponent_actor_obj().address,
+            request_sender_address=command.my_address(),
+            counterparty_account_id=command.counterparty_address(),
             request_bytes=jws.serialize(command.new_request(), sign),
         )
 
     def send_request(
-        self, request_sender_address: str, opponent_account_id: str, request_bytes: bytes
+        self, request_sender_address: str, counterparty_account_id: str, request_bytes: bytes
     ) -> CommandResponseObject:
-        base_url, public_key = self.get_base_url_and_compliance_key(opponent_account_id)
+        base_url, public_key = self.get_base_url_and_compliance_key(counterparty_account_id)
         response = self.session.post(
             f"{base_url.rstrip('/')}/v2/command",
             data=request_bytes,
@@ -160,7 +168,7 @@ class Client:
             self.validate_addresses(payment, request_sender_address)
             cmd = self.create_inbound_payment_command(request.cid, payment)
             if cmd.is_initial():
-                self.validate_dual_attestation_limit(cmd.payment.action)
+                self.validate_dual_attestation_limit_by_action(cmd.payment.action)
             elif cmd.payment.action.action == "charge" and cmd.is_rsend():
                 self.validate_recipient_signature(cmd, public_key)
             return cmd
@@ -182,33 +190,41 @@ class Client:
                 ErrorCode.invalid_recipient_signature, str(e), "command.payment.recipient_signature"
             ) from e
 
-    def validate_dual_attestation_limit(self, action: PaymentActionObject) -> None:
-        currencies = self.jsonrpc_client.get_currencies()
-        currency_codes = list(map(lambda c: c.code, currencies))
-        supported_codes = _filter_supported_currency_codes(self.supported_currency_codes, currency_codes)
-        if action.currency not in currency_codes:
-            raise command_error(
-                ErrorCode.invalid_field_value,
-                f"currency code is invalid: {action.currency}",
-                "command.payment.action.currency",
-            )
+    def validate_dual_attestation_limit_by_action(self, action: PaymentActionObject) -> None:
+        msg = self.is_under_dual_attestation_limit(action.currency, action.amount)
+        if msg:
+            raise command_error(ErrorCode.no_kyc_needed, msg, "command.payment.action.amount")
 
-        if action.currency not in supported_codes:
-            raise command_error(
-                ErrorCode.unsupported_currency,
-                f"currency code is not supported: {action.currency}",
-                "command.payment.action.currency",
-            )
+    def is_under_dual_attestation_limit(self, currency: str, amount: int) -> typing.Optional[str]:
+        currencies = self.jsonrpc_client.get_currencies()
+        try:
+            self.validate_currency_code(currency, currencies)
+        except InvalidCurrencyCodeError as e:
+            raise command_error(ErrorCode.invalid_field_value, str(e), "command.payment.action.currency")
+        except UnsupportedCurrencyCodeError as e:
+            raise command_error(ErrorCode.unsupported_currency, str(e), "command.payment.action.currency")
+
         limit = self.jsonrpc_client.get_metadata().dual_attestation_limit
         for info in currencies:
-            if info.code == action.currency:
-                if _is_under_the_threshold(limit, info.to_xdx_exchange_rate, action.amount):
-                    raise command_error(
-                        ErrorCode.no_kyc_needed,
-                        "payment amount is %s (rate: %s) under travel rule threshold %s"
-                        % (action.amount, info.to_xdx_exchange_rate, limit),
-                        "command.payment.action.amount",
+            if info.code == currency:
+                if _is_under_the_threshold(limit, info.to_xdx_exchange_rate, amount):
+                    return "payment amount is %s (rate: %s) under travel rule threshold %s" % (
+                        amount,
+                        info.to_xdx_exchange_rate,
+                        limit,
                     )
+
+    def validate_currency_code(
+        self, currency: str, currencies: typing.Optional[typing.List[jsonrpc.CurrencyInfo]] = None
+    ) -> None:
+        if currencies is None:
+            currencies = self.jsonrpc_client.get_currencies()
+        currency_codes = list(map(lambda c: c.code, currencies))
+        supported_codes = _filter_supported_currency_codes(self.supported_currency_codes, currency_codes)
+        if currency not in currency_codes:
+            raise InvalidCurrencyCodeError(f"currency code is invalid: {currency}")
+        if currency not in supported_codes:
+            raise UnsupportedCurrencyCodeError(f"currency code is not supported: {currency}")
 
     def validate_addresses(self, payment: PaymentObject, request_sender_address: str) -> None:
         self.validate_actor_address("sender", payment.sender)
@@ -258,16 +274,16 @@ class Client:
 
 
 def _filter_supported_currency_codes(
-        supported_codes: typing.Optional[typing.List[str]], codes: typing.List[str]
+    supported_codes: typing.Optional[typing.List[str]], codes: typing.List[str]
 ) -> typing.List[str]:
     return list(filter(lambda code: supported_codes is None or code in supported_codes, codes))
 
 
 def _deserialize_jws(
-        content_bytes: bytes,
-        klass: typing.Type[jws.T],
-        public_key: Ed25519PublicKey,
-        error_fn: typing.Callable[[str, str, typing.Optional[str]], Error],
+    content_bytes: bytes,
+    klass: typing.Type[jws.T],
+    public_key: Ed25519PublicKey,
+    error_fn: typing.Callable[[str, str, typing.Optional[str]], Error],
 ) -> jws.T:
     try:
         return jws.deserialize(content_bytes, klass, public_key.verify)

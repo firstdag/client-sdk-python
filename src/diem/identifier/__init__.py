@@ -15,7 +15,7 @@ from typing import List
 from . import bech32
 from .. import diem_types, utils, chain_ids
 
-from .bech32 import bech32_address_encode, bech32_address_decode, Bech32Error
+from .bech32 import bech32_address_encode, bech32_address_decode, Bech32Error, _DIEM_BECH32_SIZE
 from .subaddress import DIEM_SUBADDRESS_SIZE, DIEM_ZERO_SUBADDRESS, gen_subaddress
 
 DM = "dm"  # mainnet
@@ -40,15 +40,15 @@ class Intent:
 
     account_address: diem_types.AccountAddress
     sub_address: typing.Optional[bytes]
-    currency_code: str
-    amount: int
+    currency_code: typing.Optional[str]
+    amount: typing.Optional[int]
 
     def __init__(
         self,
         account_address: diem_types.AccountAddress,
         sub_address: typing.Optional[bytes],
-        currency_code: str,
-        amount: int,
+        currency_code: typing.Optional[str],
+        amount: typing.Optional[int],
         hrp: str,
     ) -> None:
         self.account_address = account_address
@@ -56,6 +56,10 @@ class Intent:
         self.currency_code = currency_code
         self.amount = amount
         self.hrp = hrp
+
+    @property
+    def subaddress(self) -> typing.Optional[bytes]:
+        return self.sub_address
 
     @property
     def account_address_bytes(self) -> bytes:
@@ -66,13 +70,22 @@ class Intent:
         return encode_account(self.account_address, self.sub_address, self.hrp)
 
 
-def encode_intent(encoded_account_identifier: str, currency_code: str, amount: int) -> str:
+def encode_intent(
+    encoded_account_identifier: str, currency_code: typing.Optional[str] = None, amount: typing.Optional[int] = None
+) -> str:
     """
     Encode account identifier string(encoded), currency code and amount into
     Diem intent identifier (https://dip.diem.com/dip-5/)
     """
 
-    return "diem://%s?c=%s&am=%d" % (encoded_account_identifier, currency_code, amount)
+    params = []
+    if currency_code:
+        params.append("c=%s" % currency_code)
+    if amount is not None and amount > 0:
+        params.append("am=%s" % amount)
+    if params:
+        return "diem://%s?%s" % (encoded_account_identifier, "&".join(params))
+    return "diem://%s" % encoded_account_identifier
 
 
 def decode_intent(encoded_intent_identifier: str, hrp: str) -> Intent:
@@ -113,7 +126,7 @@ def decode_intent(encoded_intent_identifier: str, hrp: str) -> Intent:
 
 def _decode_param(name, params, field, convert):  # pyre-ignore
     if field not in params:
-        raise InvalidIntentIdentifierError(f"Can't decode {name}: not found in params {params}")
+        return None
 
     if not isinstance(params[field], list):
         raise InvalidIntentIdentifierError(f"Can't decode {name}: unknown type {params}")
@@ -162,6 +175,14 @@ def decode_account(encoded_address: str, hrp: str) -> typing.Tuple[diem_types.Ac
     if subaddress_bytes != DIEM_ZERO_SUBADDRESS:
         return (address, subaddress_bytes)
     return (address, None)
+
+
+def decode_hrp(encoded_address: str) -> str:
+    if len(encoded_address) not in _DIEM_BECH32_SIZE:
+        raise ValueError("Invalid account identifier address size: {encoded_address}")
+    if encoded_address[:2] == DM:
+        return DM
+    return encoded_address[:3]
 
 
 def decode_account_address(encoded_address: str, hrp: str) -> diem_types.AccountAddress:

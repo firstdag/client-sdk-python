@@ -10,6 +10,8 @@ import requests
 import threading
 import typing
 import random
+
+from diem.__VERSION__ import VERSION
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
@@ -20,8 +22,12 @@ from . import constants
 
 DEFAULT_CONNECT_TIMEOUT_SECS: float = 5.0
 DEFAULT_TIMEOUT_SECS: float = 30.0
+DEFAULT_MAX_RETRIES: int = 15
+DEFAULT_RETRY_DELAY: float = 0.2
 DEFAULT_WAIT_FOR_TRANSACTION_TIMEOUT_SECS: float = 30.0
 DEFAULT_WAIT_FOR_TRANSACTION_WAIT_DURATION_SECS: float = 0.2
+
+USER_AGENT_HTTP_HEADER: str = "diem-client-sdk-python / %s" % VERSION
 
 
 class JsonRpcError(Exception):
@@ -185,10 +191,11 @@ class Client:
     ) -> None:
         self._url: str = server_url
         self._session: requests.Session = session or requests.Session()
+        self._session.headers.update({"User-Agent": USER_AGENT_HTTP_HEADER})
         self._timeout: typing.Tuple[float, float] = timeout or (DEFAULT_CONNECT_TIMEOUT_SECS, DEFAULT_TIMEOUT_SECS)
         self._last_known_server_state: State = State(chain_id=-1, version=-1, timestamp_usecs=-1)
         self._lock = threading.Lock()
-        self._retry: Retry = retry or Retry(5, 0.2, StaleResponseError)
+        self._retry: Retry = retry or Retry(DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY, StaleResponseError)
         self._rs: RequestStrategy = rs or RequestStrategy()
 
     # high level functions

@@ -28,7 +28,6 @@ You can find more examples under the [`examples`](./examples/) directory:
 * [Create Child VASP account](./examples/create_child_vasp.py)
 * [All Types Peer To Peer Transfer](./examples/p2p_transfer.py)
 * [Intent Identifier](./examples/intent_identifier.py)
-* [Refund](./examples/refund.py)
 
 Note: `make test` runs all examples too, see the Makefile for details.
 
@@ -49,6 +48,11 @@ Example curl to hit the server (should get an error response):
 curl -X POST -H "X-REQUEST-ID: 3185027f-0574-6f55-2668-3a38fdb5de98" -H "X-REQUEST-SENDER-ADDRESS: tdm1pacrzjajt6vuamzkswyd50e28pg77m6wylnc3spg3xj7r6" -d "invalid-jws-body" http://localhost:8080/v2/command
 ```
 
+## MiniWallet and MiniWallet Test Suite
+
+See [mini_wallet.md](mini-wallet.md)
+
+
 ## Build & Test
 
 ```
@@ -59,7 +63,23 @@ make test
 run specific test:
 
 ```
-TEST=<test file / test name> make test
+make test t=<test file / test name match pattern>
+```
+
+run with local docker testnet:
+
+```
+make test t=<test file / test name match pattern> dt=1
+```
+
+## Re-generate diem_types, stdlib, jsonrpc response data structures
+
+```
+git submodule update --init diem
+cd diem
+git pull origin master
+cd ..
+make gen
 ```
 
 ## Modules Overview

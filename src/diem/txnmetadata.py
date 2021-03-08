@@ -10,7 +10,7 @@ See https://dip.diem.com/dip-4 for more details
 
 
 from dataclasses import dataclass
-import typing
+import typing, warnings
 
 from . import diem_types, serde_types, bcs, jsonrpc, utils
 
@@ -99,6 +99,17 @@ def refund_metadata(original_transaction_version: int, reason: diem_types.Refund
     return metadata.bcs_serialize()
 
 
+def coin_trade_metadata(trade_ids: typing.List[str]) -> bytes:
+    """Create `diem_types.Metadata__CoinTradeMetadata` with `diem_types.CoinTradeMetadataV0`"""
+
+    metadata = diem_types.Metadata__CoinTradeMetadata(
+        value=diem_types.CoinTradeMetadata__CoinTradeMetadataV0(
+            value=diem_types.CoinTradeMetadataV0(trade_ids=trade_ids)
+        )
+    )
+    return metadata.bcs_serialize()
+
+
 def general_metadata(
     from_subaddress: typing.Optional[bytes] = None,
     to_subaddress: typing.Optional[bytes] = None,
@@ -170,6 +181,10 @@ def refund_metadata_from_event(event: jsonrpc.Event) -> typing.Optional[bytes]:
     Raises InvalidEventMetadataForRefundError if metadata can't be decoded as
     diem_types.GeneralMetadata__GeneralMetadataVersion0 for creating the refund metadata
     """
+
+    warnings.warn(
+        "`refund_metadata_from_event` is deprecated, prefer `refund_metadata` to create `diem_types.Metadata__RefundMetadata` BCS serialized bytes"
+    )
 
     if not event.data.metadata:
         return b""

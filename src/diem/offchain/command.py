@@ -3,6 +3,7 @@
 
 from abc import ABC, abstractmethod
 from .action import Action
+from .types import CommandRequestObject
 
 import typing
 
@@ -10,6 +11,7 @@ import typing
 class Command(ABC):
     @abstractmethod
     def id(self) -> str:
+        """Returns cid of command object"""
         ...
 
     @abstractmethod
@@ -25,10 +27,19 @@ class Command(ABC):
         ...
 
     @abstractmethod
-    def new_command(self) -> "Command":
-        """sub-class should define **kwargs for creating new command from current instance"""
+    def new_request(self) -> CommandRequestObject:
         ...
 
     @abstractmethod
     def validate(self, prior: typing.Optional["Command"]) -> None:
+        ...
+
+    @abstractmethod
+    def my_address(self) -> str:
+        """Returns my account identifier used for sending command request"""
+        ...
+
+    @abstractmethod
+    def counterparty_address(self) -> str:
+        """Returns the counterparty account identifier that receives the command request"""
         ...

@@ -107,11 +107,14 @@ class WalletApp:
         """make payment from given user account to intent_id"""
 
         intent = identifier.decode_intent(intent_id, self.hrp)
+        if not intent.amount or not intent.currency_code:
+            raise ValueError("should provide currency_code and amount")
+
         command = offchain.PaymentCommand.init(
             self.gen_user_account_id(user_name),
             self.users[user_name].kyc_data(),
             intent.account_id,
-            intent.amount,
+            intent.amount,  # pyre-ignore
             intent.currency_code,
             original_payment_reference_id=original_payment_reference_id,
             description=desc,
@@ -223,7 +226,7 @@ class WalletApp:
 
     def _evaluate_kyc_data(self, command: offchain.Command) -> typing.Tuple[ActionResultType, offchain.Command]:
         command = typing.cast(offchain.PaymentCommand, command)
-        op_kyc_data = command.opponent_actor_obj().kyc_data
+        op_kyc_data = command.counterparty_actor_obj().kyc_data
         assert op_kyc_data is not None
         ret = self.evaluate_kyc_data_result.get(str(op_kyc_data.given_name), ActionResult.PASS)
 
@@ -233,7 +236,7 @@ class WalletApp:
 
     def _manual_review(self, command: offchain.Command) -> typing.Tuple[ActionResultType, offchain.Command]:
         command = typing.cast(offchain.PaymentCommand, command)
-        op_kyc_data = command.opponent_actor_obj().kyc_data
+        op_kyc_data = command.counterparty_actor_obj().kyc_data
         assert op_kyc_data is not None
         ret = self.manual_review_result.get(str(op_kyc_data.given_name), ActionResult.PASS)
         return (ret, self._kyc_data_result("review", ret, command))
@@ -307,7 +310,7 @@ class WalletApp:
 
         lock = self.lock(command.reference_id())
         if not lock.acquire(blocking=False):
-            msg = f"command(reference_id={command.reference_id()}) is locked"
+            msg = "command(reference_id=%s) is locked" % command.reference_id()
             raise offchain.command_error(offchain.ErrorCode.conflict, msg)
 
         try:

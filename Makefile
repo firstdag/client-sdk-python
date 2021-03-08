@@ -6,29 +6,30 @@ init:
 
 	./venv/bin/pip install --upgrade pip wheel setuptools
 	./venv/bin/pip install -r requirements.txt
+	./venv/bin/python setup.py develop
 
-check: pylama
-	./venv/bin/pyre --search-path venv/lib/python3.9/site-packages check
-
-pylama:
-	./venv/bin/pylama src tests examples
-
-lint: check
+black:
 	./venv/bin/python -m black --check src tests
+
+lint:
+	./venv/bin/pylama src tests examples
+	./venv/bin/pyre --search-path venv/lib/python3.7/site-packages --search-path venv/lib/python3.8/site-packages --search-path venv/lib/python3.9/site-packages check
 
 format:
 	./venv/bin/python -m black src tests examples
 
-install:
-	./venv/bin/python setup.py develop
+test: format runtest
 
-test: format install
-	./venv/bin/pytest tests/test_* examples/* -k "$(TEST)" -vv
+runtest:
+	DMW_SELF_CHECK=Y ./venv/bin/pytest src/diem/testing/suites tests examples -k "$(t)" $(args)
 
-cover: install
-	./venv/bin/pytest --cov-report html --cov=src tests
+profile:
+	./venv/bin/python -m profile -m pytest tests examples -k "$(t)" $(args)
 
-build: lint test
+cover:
+	./venv/bin/pytest --cov-report html --cov=src tests/test_* examples/*
+
+build: black lint runtest
 
 diemtypes:
 	(cd diem && cargo build -p transaction-builder-generator)
@@ -40,7 +41,7 @@ diemtypes:
 		--diem-package-name diem \
 		--target-source-dir src/diem \
 		--with-custom-diem-code diem-types-ext/*.py \
-		-- "diem/language/stdlib/compiled/transaction_scripts/abi"
+		-- "diem/language/diem-framework/compiled/legacy/transaction_scripts/abi"
 
 protobuf:
 	mkdir -p src/diem/jsonrpc
@@ -60,7 +61,7 @@ publish: dist
 	./venv/bin/pip install --upgrade twine
 	./venv/bin/python3 -m twine upload dist/*
 
-docs: init install
+docs: init
 	rm -rf docs/diem
 	rm -rf docs/examples
 	./venv/bin/python3 -m pdoc diem --html -o docs
@@ -70,5 +71,13 @@ docs: init install
 server:
 	examples/vasp/server.sh -p 8080
 
+docker:
+	docker-compose -f diem/docker/compose/validator-testnet/docker-compose.yaml up --detach
 
-.PHONY: init check lint format install test cover build diemtypes protobuf gen dist pylama docs server
+docker-down:
+	docker-compose -f diem/docker/compose/validator-testnet/docker-compose.yaml down -v
+
+docker-stop:
+	docker-compose -f diem/docker/compose/validator-testnet/docker-compose.yaml stop
+
+.PHONY: init lint format test cover build diemtypes protobuf gen dist docs server docker docker-down docker-stop
