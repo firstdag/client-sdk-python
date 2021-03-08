@@ -73,3 +73,6 @@ class FundsPullPreApprovalCommand(Command):
 
     def new_request(self) -> CommandRequestObject:
         return new_funds_pull_pre_approval_request(funds_pull_pre_approval=self.funds_pull_pre_approval, cid=self.cid)
+
+    def counterparty_address(self) -> str:
+        return self.opponent_address()
